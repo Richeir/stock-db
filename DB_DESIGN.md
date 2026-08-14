@@ -25,7 +25,7 @@
 
 ## 3. 表清单
 
-共 **9 张表**，按用途分三类：**基础信息（2 张）**、**K 线数据（6 张）**、**辅助（1 张）**。
+共 **11 张表**，按用途分四类：**基础信息（2 张）**、**K 线数据（6 张）**、**分析结果（2 张）**、**辅助（1 张）**。
 
 **基础信息：**
 
@@ -43,6 +43,13 @@ stock_kline_monthly   股票 月 K
 etf_kline_daily       ETF 日 K
 etf_kline_weekly      ETF 周 K
 etf_kline_monthly     ETF 月 K
+```
+
+**分析结果（2 张）：**
+
+```
+stock_analysis   股票 技术面分析
+etf_analysis     ETF   技术面分析
 ```
 
 **辅助：**
@@ -253,9 +260,101 @@ CREATE INDEX IF NOT EXISTS idx_etf_monthly_date ON etf_kline_monthly(date);
 CREATE INDEX IF NOT EXISTS idx_etf_monthly_codedate ON etf_kline_monthly(code, date);
 ```
 
-## 6. 辅助表
+## 6. 分析结果表（2 张）
 
-### 6.1 复权因子 `adjust_factor`
+基于已有 K 线数据，对股票 / ETF 做纯技术面分析，将**评分、信号与 LLM 分析输出**按时序历史保存，便于回看结论变化与回测验证。默认每周计算一次（权重与频率均可调）。
+
+### 6.1 股票技术面分析 `stock_analysis`
+
+| 列名 | 类型 | 说明 |
+|------|------|------|
+| `code` | `TEXT` | 证券代码，如 `sh.600000` |
+| `date` | `TEXT` | 分析日期 `YYYY-MM-DD` |
+| `score` | `REAL` | 综合评分 0~100 |
+| `signal` | `TEXT` | 结论：`BUY` / `HOLD` / `SELL` |
+| `is_worth_buying` | `INTEGER` | 是否值得买，0/1（`signal='BUY'` 时=1） |
+| `hold_days` | `INTEGER` | 预计持有天数 |
+| `ma5` | `REAL` | 5 日均线值 |
+| `ma20` | `REAL` | 20 日均线值 |
+| `ma60` | `REAL` | 60 日均线值 |
+| `trend` | `TEXT` | 趋势：多头 / 空头 / 震荡 |
+| `momentum_20` | `REAL` | 近 20 日涨跌幅（%） |
+| `volatility_20` | `REAL` | 近 20 日年化波动率（%） |
+| `volume_ratio` | `REAL` | 量比（近 5 日均量 / 近 20 日均量） |
+| `note` | `TEXT` | 评分理由摘要 |
+| `llm_analysis` | `TEXT` | LLM 分析输出的大段文字（自然语言 / Markdown），随历史保存 |
+
+```sql
+CREATE TABLE IF NOT EXISTS stock_analysis (
+    code            TEXT NOT NULL,
+    date            TEXT NOT NULL,
+    score           REAL,
+    signal          TEXT,
+    is_worth_buying INTEGER,
+    hold_days       INTEGER,
+    ma5             REAL,
+    ma20            REAL,
+    ma60            REAL,
+    trend           TEXT,
+    momentum_20     REAL,
+    volatility_20   REAL,
+    volume_ratio    REAL,
+    note            TEXT,
+    llm_analysis    TEXT,
+    PRIMARY KEY (code, date)
+);
+CREATE INDEX IF NOT EXISTS idx_stock_analysis_date ON stock_analysis(date);
+```
+
+### 6.2 ETF 技术面分析 `etf_analysis`
+
+结构与 `stock_analysis` 完全一致：
+
+```sql
+CREATE TABLE IF NOT EXISTS etf_analysis (
+    code            TEXT NOT NULL,
+    date            TEXT NOT NULL,
+    score           REAL,
+    signal          TEXT,
+    is_worth_buying INTEGER,
+    hold_days       INTEGER,
+    ma5             REAL,
+    ma20            REAL,
+    ma60            REAL,
+    trend           TEXT,
+    momentum_20     REAL,
+    volatility_20   REAL,
+    volume_ratio    REAL,
+    note            TEXT,
+    llm_analysis    TEXT,
+    PRIMARY KEY (code, date)
+);
+CREATE INDEX IF NOT EXISTS idx_etf_analysis_date ON etf_analysis(date);
+```
+
+**评分规则（纯技术面，权重可调）：**
+
+```
+score = 0.35×趋势得分 + 0.30×动量得分 + 0.15×波动得分 + 0.20×量能得分
+```
+
+- **趋势得分**：MA5>MA20>MA60 多头排列得高分；金叉加分、死叉减分。
+- **动量得分**：近 20 日涨幅适中（5%~20%）最高，追高/暴跌压低。
+- **波动得分**：年化波动率越低越稳，得分越高。
+- **量能得分**：温和放量（量比 1.2~2.5）最佳，缩量/爆量减分。
+
+**结论映射：**
+
+- `score ≥ 65` 且多头趋势 → `BUY`（`is_worth_buying=1`）
+- `45 ≤ score < 65` → `HOLD`
+- `score < 45` → `SELL`
+- `hold_days`：按趋势强度给出，多头强推持有天数多（如 10~30 天），否则 0
+
+> `llm_analysis` 存放 LLM 等外部模型对当日分析生成的大段文字输出，作为历史记录保留，不参与 `score/signal` 的计算。
+
+## 7. 辅助表
+
+### 7.1 复权因子 `adjust_factor`
 
 存储 `query_adjust_factor` 返回的复权因子，用于在"不复权原始价"基础上现算前/后复权价。当某股发生新除权导致前复权历史价漂移时，用它低成本重算：
 
@@ -271,7 +370,7 @@ CREATE TABLE IF NOT EXISTS adjust_factor (
 
 > 因子实际含义请以 BaoStock 返回为准（不同 `query_adjust_factor` 调用口径可能返回前复权/后复权因子之一）。重算前复权价的基本思路：`前复权价 ≈ 原始价 × 前复权因子`，具体公式按 BaoStock 文档核对。
 
-## 7. 常用查询示例
+## 8. 常用查询示例
 
 ```sql
 -- 某只股票的前复权日 K（最近 N 天）
@@ -301,7 +400,7 @@ VALUES
    '2', 0.0752, '1', -0.3021, '0');
 ```
 
-## 8. 写入流程建议
+## 9. 写入流程建议
 
 1. `login()` → 用 `query_stock_basic` 分批拉取，按 `type` 区分写入 `stock_info`（`type='1'`）与 `etf_info`（`type='5'`），并可用 `query_stock_industry` 补充股票行业；如需逐日可交易标的，可用 `query_all_stock`。
 2. 对每个标的按 日/周/月 和 前复权(`adjustflag='2'`)/不复权(`'3'`) 分别调用 `query_history_k_data_plus`。
