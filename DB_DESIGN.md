@@ -25,7 +25,7 @@
 
 ## 3. 表清单
 
-共 **8 张表**：6 张 K 线数据表 + 2 张辅助表。
+共 **9 张表**：6 张 K 线数据表 + 3 张辅助表。
 
 ```
 stock_kline_daily     股票 日 K
@@ -35,8 +35,11 @@ etf_kline_daily       ETF 日 K
 etf_kline_weekly      ETF 周 K
 etf_kline_monthly     ETF 月 K
 adjust_factor         复权因子（辅助）
-security_basic        证券基本信息（辅助）
+stock_info            股票基础信息（辅助）
+etf_info              ETF 基础信息（辅助）
 ```
+
+> 股票 / ETF 基础信息均由 `query_stock_basic` 返回，靠 `type` 字段区分（股票 `'1'`、ETF `'5'`），分两张表存储。
 
 ## 4. K 线表结构（6 张）
 
@@ -215,20 +218,40 @@ CREATE TABLE IF NOT EXISTS adjust_factor (
 
 > 因子实际含义请以 BaoStock 返回为准（不同 `query_adjust_factor` 调用口径可能返回前复权/后复权因子之一）。重算前复权价的基本思路：`前复权价 ≈ 原始价 × 前复权因子`，具体公式按 BaoStock 文档核对。
 
-### 5.2 证券基本信息 `security_basic`
+### 5.2 股票基础信息 `stock_info`
 
-记录股票 / ETF 的元数据，与 K 线表通过 `code` 关联：
+记录股票（`type='1'`）的基础信息。来自 `query_stock_basic`，其中行业列来自 `query_stock_industry`（该接口仅适用于股票，ETF 无对应数据）。与 K 线表通过 `code` 关联：
 
 ```sql
-CREATE TABLE IF NOT EXISTS security_basic (
-    code     TEXT PRIMARY KEY,   -- 如 sh.600000 / sh.510010
-    code_name TEXT,              -- 证券名称
-    type      TEXT,              -- 证券类型（股票/指数/ETF 等）
-    ipoDate   TEXT,              -- 上市日期 YYYY-MM-DD
-    outDate   TEXT,              -- 退市日期（在上市为空）
-    status    TEXT               -- 上市状态
+CREATE TABLE IF NOT EXISTS stock_info (
+    code                   TEXT PRIMARY KEY,  -- 如 sh.600000
+    code_name              TEXT,              -- 证券名称
+    type                   TEXT,              -- 证券类型，'1' 股票
+    ipoDate                TEXT,              -- 上市日期 YYYY-MM-DD
+    outDate                TEXT,              -- 退市日期（在上市为空）
+    status                 TEXT,              -- 上市状态，'1' 上市
+    updateDate             TEXT,              -- 行业数据更新时间
+    industry               TEXT,              -- 所属行业（如 J66 货币金融服务）
+    industryClassification TEXT               -- 行业分类标准（如 证监会行业分类）
 );
 ```
+
+### 5.3 ETF 基础信息 `etf_info`
+
+记录 ETF（`type='5'`）的基础信息，字段来自 `query_stock_basic`：
+
+```sql
+CREATE TABLE IF NOT EXISTS etf_info (
+    code      TEXT PRIMARY KEY,   -- 如 sh.510010
+    code_name TEXT,               -- ETF 名称
+    type      TEXT,               -- 证券类型，'5' ETF
+    ipoDate   TEXT,               -- 上市日期 YYYY-MM-DD
+    outDate   TEXT,               -- 退市日期（在上市为空）
+    status    TEXT                -- 上市状态，'1' 上市
+);
+```
+
+> 说明：BaoStock 没有独立的 ETF 基础信息接口，ETF 也通过 `query_stock_basic` 返回，仅 `type` 取值不同（ETF 为 `'5'`）。
 
 ## 6. 常用查询示例
 
@@ -262,7 +285,7 @@ VALUES
 
 ## 7. 写入流程建议
 
-1. `login()` → 遍历标的列表（`security_basic` 或 `query_all_stock`）。
+1. `login()` → 用 `query_stock_basic` 分批拉取，按 `type` 区分写入 `stock_info`（`type='1'`）与 `etf_info`（`type='5'`），并可用 `query_stock_industry` 补充股票行业；如需逐日可交易标的，可用 `query_all_stock`。
 2. 对每个标的按 日/周/月 和 前复权(`adjustflag='2'`)/不复权(`'3'`) 分别调用 `query_history_k_data_plus`。
 3. 将返回 `data` 中的 `str` 数值转 `float`，空串转 `NULL`，`INSERT OR REPLACE` 入库。
 4. `commit()` 后可对 `UNIQUE(code, date, adjustflag)` 冲突做 `INSERT OR IGNORE` 增量更新。
