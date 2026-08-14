@@ -226,6 +226,7 @@ CREATE TABLE IF NOT EXISTS adjust_factor (
 CREATE TABLE IF NOT EXISTS stock_info (
     code                   TEXT PRIMARY KEY,  -- 如 sh.600000
     code_name              TEXT,              -- 证券名称
+    market                 TEXT,              -- 市场：SH 上交所 / SZ 深交所（由代码前缀推断）
     type                   TEXT,              -- 证券类型，'1' 股票
     ipoDate                TEXT,              -- 上市日期 YYYY-MM-DD
     outDate                TEXT,              -- 退市日期（在上市为空）
@@ -236,6 +237,8 @@ CREATE TABLE IF NOT EXISTS stock_info (
 );
 ```
 
+> **市场区分**：BaoStock 代码带交易所前缀，`sh.` 为上交所（上海）、`sz.` 为深交所（深圳），`market` 列由前缀推断（`sh`→`SH`、`sz`→`SZ`）。ETF 同样分两个市场（如 `sh.510010` 沪、`sz.159915` 深）。
+
 ### 5.3 ETF 基础信息 `etf_info`
 
 记录 ETF（`type='5'`）的基础信息，字段来自 `query_stock_basic`：
@@ -244,6 +247,7 @@ CREATE TABLE IF NOT EXISTS stock_info (
 CREATE TABLE IF NOT EXISTS etf_info (
     code      TEXT PRIMARY KEY,   -- 如 sh.510010
     code_name TEXT,               -- ETF 名称
+    market    TEXT,               -- 市场：SH 上交所 / SZ 深交所（由代码前缀推断）
     type      TEXT,               -- 证券类型，'5' ETF
     ipoDate   TEXT,               -- 上市日期 YYYY-MM-DD
     outDate   TEXT,               -- 退市日期（在上市为空）
