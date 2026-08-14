@@ -51,6 +51,10 @@ def main():
         )
         show("query_history_k_data_plus 日K线", rs)
 
+        # ---- 1b. 全市场 ETF 日 K 线 ----
+        rs = bs.query_daily_history_k_ETF(date="2026-02-04")
+        show("query_daily_history_k_ETF 全市场ETF日K线", rs)
+
         # ---- 2. 证券基本信息 ----
         rs = bs.query_stock_basic(code="sh.600000")
         show("query_stock_basic 证券基本信息", rs)

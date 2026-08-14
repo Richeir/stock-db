@@ -24,7 +24,7 @@
 | `query_adjust_factor` | `(code, start_date=None, end_date=None)` | 复权因子 |
 | `query_daily_adjust_factor` | `(date=None)` | 全市场每日复权因子 |
 | `query_daily_history_k_AStock` | `(date='')` | 全 A 股某日行情 |
-| `query_daily_history_k_ETF` | `(date='')` | ETF 某日行情 |
+| `query_daily_history_k_ETF` | `(date='')` | 全市场 ETF 某日日 K 线，返回全市场所有 ETF（详见 [§2.8](#28-query_daily_history_k_etf--全市场-etf-日-k-线)） |
 
 ### 1.3 证券信息
 
@@ -170,3 +170,25 @@
     ['2024-01-02', '1']
     ['2024-01-03', '1']
 ```
+
+### 2.8 `query_daily_history_k_ETF` — 全市场 ETF 日 K 线
+
+一次返回**指定日期全市场所有 ETF** 的日 K 线（不按单只代码查询，仅传日期）。返回字段较多，除常见 K 线字段外还含涨跌幅、估值指标与交易状态等。与 A 股接口不同，该接口不分页，一次拉全量（约千余行）。
+
+```text
+[query_daily_history_k_ETF 全市场ETF日K线]（2026-02-04，共 1419 行，展示前 3 行）
+  fields = ['date', 'code', 'open', 'high', 'low', 'close', 'preclose',
+            'volume', 'amount', 'adjustflag', 'turn', 'tradestatus',
+            'pctChg', 'peTTM', 'pbMRQ', 'psTTM', 'pcfNcfTTM', 'isST']
+  rows   = 1419
+    ['2026-02-04', 'sh.510010', '1.8060', '1.8330', '1.8060', '1.8290', '1.8060',
+     '161200', '294216.0000', '3', '0.114713', '1', '1.273500', '', '', '', '', '1']
+    ['2026-02-04', 'sh.510020', '3.8580', '3.9050', '3.8180', '3.8840', '3.8510',
+     '250510', '968709.0000', '3', '0.698812', '1', '0.856900', '', '', '', '', '1']
+    ['2026-02-04', 'sh.510030', '1.0650', '1.0830', '1.0630', '1.0820', '1.0650',
+     '6611300', '7107290.0000', '3', '3.965278', '1', '1.596200', '', '', '', '', '1']
+```
+
+字段说明：`preclose` 前收盘价、`amount` 成交额（元）、`turn` 换手率、`tradestatus` 交易状态（`'1'` 正常交易）、`pctChg` 涨跌幅（%）、`isST` 是否 ST。`peTTM/pbMRQ/psTTM/pcfNcfTTM` 等估值指标对 ETF 多为空字符串。
+
+> 注意：该接口的返回对象**没有** `rows` 隐藏属性，取行数请用 `len(rs.data)`。ETF 数据范围：日/周/月 K 线及 5/15/30/60 分钟 K 线自 `2026-01-05` 起。
