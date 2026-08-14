@@ -1,0 +1,9 @@
+# 虚拟环境
+.venv/
+venv/
+__pycache__/
+*.pyc
+
+# 临时文件
+/tmp/
+*.tmp
