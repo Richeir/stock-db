@@ -25,7 +25,16 @@
 
 ## 3. 表清单
 
-共 **9 张表**：6 张 K 线数据表 + 3 张辅助表。
+共 **9 张表**，按用途分三类：**基础信息（2 张）**、**K 线数据（6 张）**、**辅助（1 张）**。
+
+**基础信息：**
+
+```
+stock_info   股票基础信息
+etf_info     ETF 基础信息
+```
+
+**K 线数据（6 张）：**
 
 ```
 stock_kline_daily     股票 日 K
@@ -34,16 +43,60 @@ stock_kline_monthly   股票 月 K
 etf_kline_daily       ETF 日 K
 etf_kline_weekly      ETF 周 K
 etf_kline_monthly     ETF 月 K
-adjust_factor         复权因子（辅助）
-stock_info            股票基础信息（辅助）
-etf_info              ETF 基础信息（辅助）
+```
+
+**辅助：**
+
+```
+adjust_factor  复权因子
 ```
 
 > 股票 / ETF 基础信息均由 `query_stock_basic` 返回，靠 `type` 字段区分（股票 `'1'`、ETF `'5'`），分两张表存储。
 
-## 4. K 线表结构（6 张）
+## 4. 基础信息表（2 张）
 
-### 4.1 股票日 K `stock_kline_daily`
+### 4.1 股票基础信息 `stock_info`
+
+记录股票（`type='1'`）的基础信息。来自 `query_stock_basic`，其中行业列来自 `query_stock_industry`（该接口仅适用于股票，ETF 无对应数据）。与 K 线表通过 `code` 关联：
+
+```sql
+CREATE TABLE IF NOT EXISTS stock_info (
+    code                   TEXT PRIMARY KEY,  -- 如 sh.600000
+    code_name              TEXT,              -- 证券名称
+    market                 TEXT,              -- 市场：SH 上交所 / SZ 深交所（由代码前缀推断）
+    type                   TEXT,              -- 证券类型，'1' 股票
+    ipoDate                TEXT,              -- 上市日期 YYYY-MM-DD
+    outDate                TEXT,              -- 退市日期（在上市为空）
+    status                 TEXT,              -- 上市状态，'1' 上市
+    updateDate             TEXT,              -- 行业数据更新时间
+    industry               TEXT,              -- 所属行业（如 J66 货币金融服务）
+    industryClassification TEXT               -- 行业分类标准（如 证监会行业分类）
+);
+```
+
+> **市场区分**：BaoStock 代码带交易所前缀，`sh.` 为上交所（上海）、`sz.` 为深交所（深圳），`market` 列由前缀推断（`sh`→`SH`、`sz`→`SZ`）。ETF 同样分两个市场（如 `sh.510010` 沪、`sz.159915` 深）。
+
+### 4.2 ETF 基础信息 `etf_info`
+
+记录 ETF（`type='5'`）的基础信息，字段来自 `query_stock_basic`：
+
+```sql
+CREATE TABLE IF NOT EXISTS etf_info (
+    code      TEXT PRIMARY KEY,   -- 如 sh.510010
+    code_name TEXT,               -- ETF 名称
+    market    TEXT,               -- 市场：SH 上交所 / SZ 深交所（由代码前缀推断）
+    type      TEXT,               -- 证券类型，'5' ETF
+    ipoDate   TEXT,               -- 上市日期 YYYY-MM-DD
+    outDate   TEXT,               -- 退市日期（在上市为空）
+    status    TEXT                -- 上市状态，'1' 上市
+);
+```
+
+> 说明：BaoStock 没有独立的 ETF 基础信息接口，ETF 也通过 `query_stock_basic` 返回，仅 `type` 取值不同（ETF 为 `'5'`）。
+
+## 5. K 线表结构（6 张）
+
+### 5.1 股票日 K `stock_kline_daily`
 
 | 列名 | 类型 | 说明 |
 |------|------|------|
@@ -84,7 +137,7 @@ CREATE INDEX IF NOT EXISTS idx_stock_daily_date ON stock_kline_daily(date);
 CREATE INDEX IF NOT EXISTS idx_stock_daily_codedate ON stock_kline_daily(code, date);
 ```
 
-### 4.2 股票周 K `stock_kline_weekly`
+### 5.2 股票周 K `stock_kline_weekly`
 
 BaoStock 周 K **不返回** `preclose`、`tradestatus`、`isST`，故省略这三列：
 
@@ -107,7 +160,7 @@ CREATE INDEX IF NOT EXISTS idx_stock_weekly_date ON stock_kline_weekly(date);
 CREATE INDEX IF NOT EXISTS idx_stock_weekly_codedate ON stock_kline_weekly(code, date);
 ```
 
-### 4.3 股票月 K `stock_kline_monthly`
+### 5.3 股票月 K `stock_kline_monthly`
 
 ```sql
 CREATE TABLE IF NOT EXISTS stock_kline_monthly (
@@ -128,7 +181,7 @@ CREATE INDEX IF NOT EXISTS idx_stock_monthly_date ON stock_kline_monthly(date);
 CREATE INDEX IF NOT EXISTS idx_stock_monthly_codedate ON stock_kline_monthly(code, date);
 ```
 
-### 4.4 ETF 日 K `etf_kline_daily`
+### 5.4 ETF 日 K `etf_kline_daily`
 
 ETF 日 K 除标准字段外，BaoStock 还返回 **估值指标** `peTTM`、`pbMRQ`、`psTTM`、`pcfNcfTTM`（对多数 ETF 为空字符串）：
 
@@ -158,7 +211,7 @@ CREATE INDEX IF NOT EXISTS idx_etf_daily_date ON etf_kline_daily(date);
 CREATE INDEX IF NOT EXISTS idx_etf_daily_codedate ON etf_kline_daily(code, date);
 ```
 
-### 4.5 ETF 周 K `etf_kline_weekly`
+### 5.5 ETF 周 K `etf_kline_weekly`
 
 ```sql
 CREATE TABLE IF NOT EXISTS etf_kline_weekly (
@@ -179,7 +232,7 @@ CREATE INDEX IF NOT EXISTS idx_etf_weekly_date ON etf_kline_weekly(date);
 CREATE INDEX IF NOT EXISTS idx_etf_weekly_codedate ON etf_kline_weekly(code, date);
 ```
 
-### 4.6 ETF 月 K `etf_kline_monthly`
+### 5.6 ETF 月 K `etf_kline_monthly`
 
 ```sql
 CREATE TABLE IF NOT EXISTS etf_kline_monthly (
@@ -200,9 +253,9 @@ CREATE INDEX IF NOT EXISTS idx_etf_monthly_date ON etf_kline_monthly(date);
 CREATE INDEX IF NOT EXISTS idx_etf_monthly_codedate ON etf_kline_monthly(code, date);
 ```
 
-## 5. 辅助表
+## 6. 辅助表
 
-### 5.1 复权因子 `adjust_factor`
+### 6.1 复权因子 `adjust_factor`
 
 存储 `query_adjust_factor` 返回的复权因子，用于在"不复权原始价"基础上现算前/后复权价。当某股发生新除权导致前复权历史价漂移时，用它低成本重算：
 
@@ -218,46 +271,7 @@ CREATE TABLE IF NOT EXISTS adjust_factor (
 
 > 因子实际含义请以 BaoStock 返回为准（不同 `query_adjust_factor` 调用口径可能返回前复权/后复权因子之一）。重算前复权价的基本思路：`前复权价 ≈ 原始价 × 前复权因子`，具体公式按 BaoStock 文档核对。
 
-### 5.2 股票基础信息 `stock_info`
-
-记录股票（`type='1'`）的基础信息。来自 `query_stock_basic`，其中行业列来自 `query_stock_industry`（该接口仅适用于股票，ETF 无对应数据）。与 K 线表通过 `code` 关联：
-
-```sql
-CREATE TABLE IF NOT EXISTS stock_info (
-    code                   TEXT PRIMARY KEY,  -- 如 sh.600000
-    code_name              TEXT,              -- 证券名称
-    market                 TEXT,              -- 市场：SH 上交所 / SZ 深交所（由代码前缀推断）
-    type                   TEXT,              -- 证券类型，'1' 股票
-    ipoDate                TEXT,              -- 上市日期 YYYY-MM-DD
-    outDate                TEXT,              -- 退市日期（在上市为空）
-    status                 TEXT,              -- 上市状态，'1' 上市
-    updateDate             TEXT,              -- 行业数据更新时间
-    industry               TEXT,              -- 所属行业（如 J66 货币金融服务）
-    industryClassification TEXT               -- 行业分类标准（如 证监会行业分类）
-);
-```
-
-> **市场区分**：BaoStock 代码带交易所前缀，`sh.` 为上交所（上海）、`sz.` 为深交所（深圳），`market` 列由前缀推断（`sh`→`SH`、`sz`→`SZ`）。ETF 同样分两个市场（如 `sh.510010` 沪、`sz.159915` 深）。
-
-### 5.3 ETF 基础信息 `etf_info`
-
-记录 ETF（`type='5'`）的基础信息，字段来自 `query_stock_basic`：
-
-```sql
-CREATE TABLE IF NOT EXISTS etf_info (
-    code      TEXT PRIMARY KEY,   -- 如 sh.510010
-    code_name TEXT,               -- ETF 名称
-    market    TEXT,               -- 市场：SH 上交所 / SZ 深交所（由代码前缀推断）
-    type      TEXT,               -- 证券类型，'5' ETF
-    ipoDate   TEXT,               -- 上市日期 YYYY-MM-DD
-    outDate   TEXT,               -- 退市日期（在上市为空）
-    status    TEXT                -- 上市状态，'1' 上市
-);
-```
-
-> 说明：BaoStock 没有独立的 ETF 基础信息接口，ETF 也通过 `query_stock_basic` 返回，仅 `type` 取值不同（ETF 为 `'5'`）。
-
-## 6. 常用查询示例
+## 7. 常用查询示例
 
 ```sql
 -- 某只股票的前复权日 K（最近 N 天）
@@ -287,7 +301,7 @@ VALUES
    '2', 0.0752, '1', -0.3021, '0');
 ```
 
-## 7. 写入流程建议
+## 8. 写入流程建议
 
 1. `login()` → 用 `query_stock_basic` 分批拉取，按 `type` 区分写入 `stock_info`（`type='1'`）与 `etf_info`（`type='5'`），并可用 `query_stock_industry` 补充股票行业；如需逐日可交易标的，可用 `query_all_stock`。
 2. 对每个标的按 日/周/月 和 前复权(`adjustflag='2'`)/不复权(`'3'`) 分别调用 `query_history_k_data_plus`。
