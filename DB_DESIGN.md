@@ -77,11 +77,18 @@ CREATE TABLE IF NOT EXISTS stock_info (
     status                 TEXT,              -- 上市状态，'1' 上市
     updateDate             TEXT,              -- 行业数据更新时间
     industry               TEXT,              -- 所属行业（如 J66 货币金融服务）
-    industryClassification TEXT               -- 行业分类标准（如 证监会行业分类）
+    industryClassification TEXT,              -- 行业分类标准（如 证监会行业分类）
+    last_trade_date        TEXT,              -- 最后交易日 YYYY-MM-DD
+    last_close             REAL,              -- 最后交易日收盘价（不复权）
+    last_pct_chg           REAL,              -- 最后交易日涨跌幅（%）
+    last_amount            REAL,              -- 最后交易日成交额（元）
+    pe_ttm                 REAL               -- 市盈率 PE(TTM)
 );
 ```
 
 > **市场区分**：BaoStock 代码带交易所前缀，`sh.` 为上交所（上海）、`sz.` 为深交所（深圳），`market` 列由前缀推断（`sh`→`SH`、`sz`→`SZ`）。ETF 同样分两个市场（如 `sh.510010` 沪、`sz.159915` 深）。
+>
+> **新增行情字段的来源（均可从 BaoStock 获取）**：`last_trade_date / last_close / last_pct_chg / last_amount / pe_ttm` 均来自 `query_history_k_data_plus` 的**日 K**（`adjustflag='3'` 不复权），而非 `query_stock_basic`，故可由脚本自动回填，无需 LLM 循环。对应字段映射：`close→last_close`、`pctChg→last_pct_chg`、`amount→last_amount`、`peTTM→pe_ttm`、`date→last_trade_date`（取每个 `code` 日期最大的那一行）。这些字段为**可空**，未回填前为 `NULL`。
 
 ### 4.2 ETF 基础信息 `etf_info`
 
@@ -96,7 +103,7 @@ CREATE TABLE IF NOT EXISTS etf_info (
     ipoDate         TEXT,               -- 上市日期 YYYY-MM-DD
     outDate         TEXT,               -- 退市日期（在上市为空）
     status          TEXT,               -- 上市状态，'1' 上市
-    last_close_date TEXT,               -- 价格对应交易日 YYYY-MM-DD（最后一个有 K 线的交易日）
+    last_trade_date TEXT,               -- 价格对应交易日 YYYY-MM-DD（最后一个有 K 线的交易日）
     last_close      REAL,               -- 最后一个交易日收盘价（不复权原始价），由 LLM 循环填补
     last_pct_chg    REAL,               -- 最后一个交易日涨跌幅（%），由 LLM 循环填补
     fund_scale      REAL                -- 基金规模（如净值规模/份额规模，口径以填补时约定为准），由 LLM 循环填补
@@ -105,8 +112,8 @@ CREATE TABLE IF NOT EXISTS etf_info (
 
 > 说明：BaoStock 没有独立的 ETF 基础信息接口，ETF 也通过 `query_stock_basic` 返回，仅 `type` 取值不同（ETF 为 `'5'`）。
 >
-> **新增字段说明（LLM 循环填补）**：`last_close_date` / `last_close` / `last_pct_chg` / `fund_scale` 四个字段并非来自 `query_stock_basic`，而是由外部 LLM 循环根据行情/公开资料逐条补齐：
-> - `last_close` / `last_pct_chg`：该 ETF 最后一个交易日（`last_close_date`）的不复权收盘价与涨跌幅（%），取值可与 `etf_kline_daily` 对应（`adjustflag='3'`）交叉校验。
+> **新增字段说明（LLM 循环填补）**：`last_trade_date` / `last_close` / `last_pct_chg` / `fund_scale` 四个字段并非来自 `query_stock_basic`，而是由外部 LLM 循环根据行情/公开资料逐条补齐：
+> - `last_close` / `last_pct_chg`：该 ETF 最后一个交易日（`last_trade_date`）的不复权收盘价与涨跌幅（%），取值可与 `etf_kline_daily` 对应（`adjustflag='3'`）交叉校验。
 > - `fund_scale`：基金规模，入库时建议统一口径（如元 / 亿元 / 份额数），并在本文件「约定」中固化，避免后续数据不一致。
 > - 这些字段为**可空**，未填补前为 `NULL`。
 
@@ -410,24 +417,39 @@ VALUES
 
 -- LLM 循环按 code 幂等填充 ETF 的收盘价、涨跌幅与规模（未覆盖的列保留原值）
 UPDATE etf_info
-SET last_close_date = '2024-01-05',
+SET last_trade_date = '2024-01-05',
     last_close = 0.918,
     last_pct_chg = 1.21,
     fund_scale = 530000000.0
 WHERE code = 'sh.510010';
 
+-- 用不复权日 K 自动回填 stock_info 的行情字段（按 code 取最大日期一行）
+UPDATE stock_info
+SET last_trade_date = k.date,
+    last_close      = k.close,
+    last_pct_chg    = k.pctChg,
+    last_amount     = k.amount,
+    pe_ttm          = k.peTTM
+FROM (
+    SELECT code, date, close, pctChg, amount, peTTM,
+           ROW_NUMBER() OVER (PARTITION BY code ORDER BY date DESC) AS rn
+    FROM stock_kline_daily
+    WHERE adjustflag = '3'
+) AS k
+WHERE stock_info.code = k.code AND k.rn = 1;
+
 -- 查询已有最新收盘价但规模仍为 NULL 的 ETF（供 LLM 循环继续补齐）
-SELECT code, code_name, last_close_date, last_close, fund_scale
+SELECT code, code_name, last_trade_date, last_close, fund_scale
 FROM etf_info
 WHERE last_close IS NOT NULL AND fund_scale IS NULL;
 
 -- 用 K 线表交叉校验收盘价与涨跌幅（不复权日 K 最后一行的 close / pctChg）
-SELECT e.code, e.last_close_date, e.last_close, e.last_pct_chg,
+SELECT e.code, e.last_trade_date, e.last_close, e.last_pct_chg,
        k.close AS kline_close, k.pctChg AS kline_pct_chg
 FROM etf_info e
 JOIN etf_kline_daily k
   ON k.code = e.code
- AND k.date = e.last_close_date
+ AND k.date = e.last_trade_date
  AND k.adjustflag = '3';
 ```
 
@@ -437,5 +459,5 @@ JOIN etf_kline_daily k
 2. 对每个标的按 日/周/月 和 前复权(`adjustflag='2'`)/不复权(`'3'`) 分别调用 `query_history_k_data_plus`。
 3. 将返回 `data` 中的 `str` 数值转 `float`，空串转 `NULL`，`INSERT OR REPLACE` 入库。
 4. `commit()` 后可对 `UNIQUE(code, date, adjustflag)` 冲突做 `INSERT OR IGNORE` 增量更新。
-5. 对 `etf_info` 中的 `last_close_date / last_close / last_pct_chg / fund_scale`：由外部 LLM 循环逐条查缺（`fund_scale IS NULL` 等），按 `code` 执行 `UPDATE` 幂等填充；如已有 `last_close`，可先用第 8 节的交叉校验 SQL 核对再写。
+5. 对 `etf_info` 中的 `last_trade_date / last_close / last_pct_chg / fund_scale`：由外部 LLM 循环逐条查缺（`fund_scale IS NULL` 等），按 `code` 执行 `UPDATE` 幂等填充；如已有 `last_close`，可先用第 8 节的交叉校验 SQL 核对再写。
 6. 结束后 `logout()`。
