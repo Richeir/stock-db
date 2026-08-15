@@ -4,6 +4,11 @@ venv/
 __pycache__/
 *.pyc
 
+# 构建产物
+build/
+dist/
+*.egg-info/
+
 # 临时文件
 /tmp/
 *.tmp
