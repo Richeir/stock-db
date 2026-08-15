@@ -15,8 +15,8 @@
 # 运行 demo（需要联网，会真实登录 BaoStock）
 .venv/bin/python demo.py
 
-# 安装依赖
-.venv/bin/pip install baostock
+# 安装依赖（读 pyproject.toml，含 baostock 与 baostock-demo 命令入口）
+.venv/bin/pip install -e .
 ```
 
 ## 环境约定

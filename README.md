@@ -14,12 +14,16 @@
 
 ## 1. 安装与登录
 
-项目约定使用虚拟环境 `.venv`：
+项目约定使用虚拟环境 `.venv`，推荐通过 `pyproject.toml` 安装（含 baostock 依赖与 `baostock-demo` 命令入口）：
 
 ```bash
 python3 -m venv .venv
-.venv/bin/pip install baostock
+.venv/bin/pip install -e .
 ```
+
+> 说明：`requirements.txt` 内容为 `-e .`，即直接安装本项目，因此 `pip install -r requirements.txt` 效果等价。也可只 `pip install baostock` 后直接运行 `demo.py`。
+
+安装后除 `python demo.py` 外，还可直接运行命令 `baostock-demo`。
 
 所有数据查询前必须调用 `login()`，结束使用后调用 `logout()`。默认是匿名登录：
 

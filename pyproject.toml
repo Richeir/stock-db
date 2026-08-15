@@ -1,0 +1,26 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "baostock-demo"
+version = "0.1.0"
+description = "BaoStock 调研 demo：行情/K线、基本信息、指数成分、财务、宏观利率、交易日历"
+readme = "README.md"
+license = "MIT"
+requires-python = ">=3.11"
+dependencies = [
+    "baostock",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest",
+    "ruff",
+]
+
+[project.scripts]
+baostock-demo = "demo:main"
+
+[tool.setuptools]
+py-modules = ["demo"]
