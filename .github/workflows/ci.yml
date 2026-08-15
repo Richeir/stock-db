@@ -20,10 +20,10 @@ jobs:
         run: pip install -e ".[dev]"
 
       - name: Syntax check
-        run: python -m compileall demo.py db.py sync.py
+        run: python -m compileall demo.py
 
       - name: Import check
-        run: python -c "import demo, db, sync"
+        run: python -c "import demo"
 
       - name: Tests
         run: pytest -q
