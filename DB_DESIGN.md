@@ -288,6 +288,7 @@ CREATE INDEX IF NOT EXISTS idx_etf_monthly_codedate ON etf_kline_monthly(code, d
 | `date` | `TEXT` | 分析日期 `YYYY-MM-DD` |
 | `score` | `REAL` | 综合评分 0~100 |
 | `signal` | `TEXT` | 结论：`BUY` / `HOLD` / `SELL` |
+| `rating` | `TEXT` | 买入评级（9 档，具时效性，随 `date` 存于分析表）：`S+`/`S`/`A+`/`A`/`B+`/`B`/`C+`/`C`/`D` |
 | `is_worth_buying` | `INTEGER` | 是否值得买，0/1（`signal='BUY'` 时=1） |
 | `hold_days` | `INTEGER` | 预计持有天数 |
 | `ma5` | `REAL` | 5 日均线值 |
@@ -306,6 +307,7 @@ CREATE TABLE IF NOT EXISTS stock_analysis (
     date            TEXT NOT NULL,
     score           REAL,
     signal          TEXT,
+    rating          TEXT,
     is_worth_buying INTEGER,
     hold_days       INTEGER,
     ma5             REAL,
@@ -332,6 +334,7 @@ CREATE TABLE IF NOT EXISTS etf_analysis (
     date            TEXT NOT NULL,
     score           REAL,
     signal          TEXT,
+    rating          TEXT,
     is_worth_buying INTEGER,
     hold_days       INTEGER,
     ma5             REAL,
@@ -361,12 +364,28 @@ score = 0.35×趋势得分 + 0.30×动量得分 + 0.15×波动得分 + 0.20×量
 
 **结论映射：**
 
-- `score ≥ 65` 且多头趋势 → `BUY`（`is_worth_buying=1`）
+- `score ≥ 65` 且多头趋势 → `signal='BUY'`（`is_worth_buying=1`）
 - `45 ≤ score < 65` → `HOLD`
 - `score < 45` → `SELL`
 - `hold_days`：按趋势强度给出，多头强推持有天数多（如 10~30 天），否则 0
 
-> `llm_analysis` 存放 LLM 等外部模型对当日分析生成的大段文字输出，作为历史记录保留，不参与 `score/signal` 的计算。
+**买入评级（9 档）映射**（纯技术面模式下由 `score` 0~100 换算，阈值可调；LLM 模式下由 LLM 直接产出 `rating`）：
+
+| 区间 | 评级 |
+|------|------|
+| ≥ 88 | `S+` |
+| 75 ~ 87 | `S` |
+| 63 ~ 74 | `A+` |
+| 50 ~ 62 | `A` |
+| 38 ~ 49 | `B+` |
+| 25 ~ 37 | `B` |
+| 13 ~ 24 | `C+` |
+| 6 ~ 12 | `C` |
+| < 6 | `D` |
+
+> `rating` 具**时效性**，随 `date` 存于分析表（主键的一部分），**不冗余到 `stock_info` / `etf_info`**。列表页按评级排序时取每只股票最新一条（`code` 分组取最大 `date` 的 `rating`）。
+
+> **LLM 模式**：MVP0 由单个大模型判断是否值得买入并给出持有天数。此时 LLM 的输出应**回填结构字段** `rating`、`is_worth_buying`、`hold_days`（而不是只写入 `llm_analysis` 文字），`llm_analysis` 保存 LLM 的推理文字。纯技术面模式仅作为无 LLM 时的兜底。
 
 ## 7. 辅助表
 
@@ -442,6 +461,15 @@ WHERE stock_info.code = k.code AND k.rn = 1;
 SELECT code, code_name, last_trade_date, last_close, fund_scale
 FROM etf_info
 WHERE last_close IS NOT NULL AND fund_scale IS NULL;
+
+-- 首页统计：收录数量 / 已分析数量 / 已分析次数
+SELECT
+  (SELECT COUNT(*) FROM stock_info)  AS stock_cnt,
+  (SELECT COUNT(*) FROM etf_info)   AS etf_cnt,
+  (SELECT COUNT(DISTINCT code) FROM stock_analysis)
+    + (SELECT COUNT(DISTINCT code) FROM etf_analysis) AS analyzed_cnt,
+  (SELECT COUNT(*) FROM stock_analysis)
+    + (SELECT COUNT(*) FROM etf_analysis)             AS analyzed_times;
 
 -- 用 K 线表交叉校验收盘价与涨跌幅（不复权日 K 最后一行的 close / pctChg）
 SELECT e.code, e.last_trade_date, e.last_close, e.last_pct_chg,
