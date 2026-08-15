@@ -7,7 +7,9 @@
 一个 BaoStock（Python 免费证券数据接口库）调研 demo：
 
 - `demo.py` — 可运行的示例脚本，登录后按类别查询数据并打印返回值。
-- `README.md` — 调研报告，含完整 API 目录、返回值结构、真实输出示例。
+- `API.md` — 完整 API 目录、函数签名、各接口真实返回值示例。
+- `DB_DESIGN.md` — SQLite 存储设计（核心设计文档；本仓库不含落库实现）。
+- `tests/test_demo.py` — 离线 API 测试（mock `baostock`，不联网）。
 
 ## 常用命令
 
@@ -17,6 +19,9 @@
 
 # 安装依赖（读 pyproject.toml，含 baostock 与 baostock-demo 命令入口）
 .venv/bin/pip install -e .
+
+# 离线测试（mock baostock，不联网）
+.venv/bin/python -m pytest -q
 ```
 
 ## 环境约定
