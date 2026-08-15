@@ -64,10 +64,16 @@ def test_show_limits_rows(capsys):
 
 
 def test_main_success_path(monkeypatch, capsys):
-    """main() 成功路径：登录成功后依次调用各 query_*，最终登出。"""
+    """main() 成功路径：登录成功后依次调用各 query_* 且传入正确参数，最终登出。"""
     called = []
+    detail = []  # 记录 (函数名, 位置参数, 关键字参数)
 
     class FakeBS:
+        def _r(self, name, *a, **kw):
+            called.append(name)
+            detail.append((name, a, kw))
+            return FakeResult(fields=["date", "close"], data=[["2024-01-02", "6.63"]])
+
         def login(self):
             called.append("login")
             return FakeLogin()
@@ -76,36 +82,28 @@ def test_main_success_path(monkeypatch, capsys):
             called.append("logout")
 
         def query_history_k_data_plus(self, *a, **kw):
-            called.append("query_history_k_data_plus")
-            return FakeResult(fields=["date", "close"], data=[["2024-01-02", "6.63"]])
+            return self._r("query_history_k_data_plus", *a, **kw)
 
         def query_daily_history_k_ETF(self, **kw):
-            called.append("query_daily_history_k_ETF")
-            return FakeResult(fields=["code"], data=[["sh.510010"]])
+            return self._r("query_daily_history_k_ETF", **kw)
 
         def query_stock_basic(self, **kw):
-            called.append("query_stock_basic")
-            return FakeResult(fields=["code"], data=[["sh.600000"]])
+            return self._r("query_stock_basic", **kw)
 
         def query_hs300_stocks(self, **kw):
-            called.append("query_hs300_stocks")
-            return FakeResult(fields=["code"], data=[])
+            return self._r("query_hs300_stocks", **kw)
 
         def query_profit_data(self, **kw):
-            called.append("query_profit_data")
-            return FakeResult(fields=["code"], data=[])
+            return self._r("query_profit_data", **kw)
 
         def query_forecast_report(self, *a, **kw):
-            called.append("query_forecast_report")
-            return FakeResult(fields=["code"], data=[])
+            return self._r("query_forecast_report", *a, **kw)
 
         def query_deposit_rate_data(self, **kw):
-            called.append("query_deposit_rate_data")
-            return FakeResult(fields=["code"], data=[])
+            return self._r("query_deposit_rate_data", **kw)
 
         def query_trade_dates(self, **kw):
-            called.append("query_trade_dates")
-            return FakeResult(fields=["code"], data=[])
+            return self._r("query_trade_dates", **kw)
 
     monkeypatch.setattr(demo, "bs", FakeBS())
     demo.main()
@@ -121,11 +119,28 @@ def test_main_success_path(monkeypatch, capsys):
         "query_deposit_rate_data",
         "query_trade_dates",
     ] + ["logout"]
+
+    # 关键参数断言：K 线接口的 code / 字段 / 频率 / 复权方式
+    name, args, kw = detail[0]
+    assert name == "query_history_k_data_plus"
+    assert args[0] == "sh.600000"
+    assert "date,code,open,high,low,close,volume" in args[1]
+    assert kw["start_date"] == "2024-01-02" and kw["end_date"] == "2024-01-05"
+    assert kw["frequency"] == "d" and kw["adjustflag"] == "3"
+
+    # ETF 日 K / 财务 / 宏观 / 交易日历的日期参数
+    by_name = {n: kw for n, _, kw in detail}
+    assert by_name["query_daily_history_k_ETF"]["date"] == "2026-02-04"
+    assert by_name["query_profit_data"]["year"] == 2023
+    assert by_name["query_profit_data"]["quarter"] == 4
+    assert by_name["query_deposit_rate_data"]["start_date"] == "2015-01-01"
+    assert by_name["query_trade_dates"]["start_date"] == "2024-01-01"
+
     assert "已登出" in out
 
 
 def test_main_login_failure_returns_early(monkeypatch, capsys):
-    """登录失败：打印失败信息，不调用任何 query_*，并登出。"""
+    """登录失败：打印失败信息，不调用任何 query_*（login 失败前即 return，故不登出）。"""
     called = []
 
     class FakeBS:

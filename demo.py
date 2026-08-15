@@ -1,5 +1,3 @@
-#!/usr/bin/env python
-# -*- coding: utf-8 -*-
 """BaoStock 调研 demo —— 展示常用 API 及返回值结构。
 
 运行方式:
@@ -12,7 +10,7 @@ import sys
 
 try:
     import baostock as bs
-except ImportError as e:
+except ImportError:
     sys.exit("未安装 baostock，请先运行: pip install baostock")
 
 # 打印查询结果：统一展示 error_code / error_msg / fields / 前 N 行
