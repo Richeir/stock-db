@@ -97,9 +97,42 @@ BaoStock 平台各数据的每日更新时段如下（供入库调度参考）�
 ```bash
 # 创建虚拟环境并安装
 python3 -m venv .venv
-.venv/bin/pip install baostock
+.venv/bin/pip install -e .
 
 # 运行 demo（真实联网取数，演示历史 K 线、ETF 日 K、证券信息、
 # 指数成分、财务、宏观利率、交易日历等常用 API）
 .venv/bin/python demo.py
 ```
+
+---
+
+## 7. 数据入库（db.py / sync.py）
+
+把 BaoStock 数据落库为 SQLite 的两层代码，对应 [DB_DESIGN.md](DB_DESIGN.md) 的表设计（11 张表：基础信息、股票/ETF 日周月 K 线、技术面分析、复权因子）：
+
+- **`db.py`（存储层）**：建表 `init_db()`、幂等写入 `upsert()`（`INSERT OR REPLACE`，主键 `UNIQUE(code,date,adjustflag)` 去重）、查询封装（K 线 / 基础信息 / 分析 / 首页统计 / 行情回填）。纯 SQLite，离线可测，不依赖 baostock。
+- **`sync.py`（抓取管道）**：登录后抓基础信息按 `type` 分表写入 `stock_info` / `etf_info`，抓取单只股票或全市场 ETF 的 K 线入库。
+
+```bash
+# 只建表（不联网）
+.venv/bin/baostock-sync --db baostock.db --init-only
+
+# 同步基础信息 + 单只股票 K 线（短区间示例）
+.venv/bin/baostock-sync --db baostock.db --codes sh.600000 --start 2024-01-02 --end 2024-01-05
+
+# 抓取指定日期全市场 ETF 日 K
+.venv/bin/baostock-sync --db baostock.db --etf-date 2026-02-04
+```
+
+在 Python 中使用存储层：
+
+```python
+import db
+conn = db.connect("baostock.db")
+db.init_db(conn)
+db.upsert(conn, "stock_kline_daily", rows)      # rows: list[dict]，键名与表列对齐
+klines = db.get_kline(conn, "sh.600000", adjustflag="2")
+stats = db.count_stats(conn)
+```
+
+离线测试：`pip install -e ".[dev]"` 后运行 `.venv/bin/python -m pytest`。

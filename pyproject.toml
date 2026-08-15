@@ -21,6 +21,7 @@ dev = [
 
 [project.scripts]
 baostock-demo = "demo:main"
+baostock-sync = "sync:main"
 
 [tool.setuptools]
-py-modules = ["demo"]
+py-modules = ["demo", "db", "sync"]
